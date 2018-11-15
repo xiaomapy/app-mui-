@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<!--  web 页面模拟真实玩具，接受app发送的指令；作出响应  -->
+<audio src="" autoplay controls id="player"></audio>
+<br>
+<input type="text" id="device_id">
+<button onclick="start_toy()">玩具开机键</button>
+<br>
+<button onclick="start_reco()">开始废话</button>
+<br>
+<button onclick="stop_reco()">发送语音</button>
+<br>
+<button onclick="start_reco()">录制消息</button>
+<span id="id_user"></span>
+<br>
+<button onclick="send_reco()">发送语音消息</button>
+<br>
+<button onclick="recv_msg()">播放消息</button>
+</body>
+<script src="/static/Recorder.js"></script>
+<script src="/static/jQuery3.1.1.js"></script>
+<script type="application/javascript">
+    var server = "http://192.168.11.22:8080";
+    var ws_server = "ws://192.168.11.22:8090";
+    var get_music = server + "/get_audio/";
+    var get_chat = server + "/get_chat/";
+    var ws = null;
+    var reco = null;
+    var audio_context = new AudioContext();
+    navigator.getUserMedia = (navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia ||
+        navigator.msGetUserMedia);
+
+    navigator.getUserMedia({audio: true}, create_stream, function (err) {
+        console.log(err)
+    });
+
+    function create_stream(user_media) {
+        var stream_input = audio_context.createMediaStreamSource(user_media);
+        reco = new Recorder(stream_input);
+
+    }
+
+    function start_reco() {
+        reco.record();
+    }
+
+    function stop_reco() {
+        reco.stop();
+        get_audio();
+        reco.clear();
+    }
+
+    function get_audio() {
+        reco.exportWAV(function (wav_file) {
+            ws.send(wav_file);
+        })
+    }
+
+    var toy_id = null;
+
+    function start_toy() {
+        var device_id = document.getElementById("device_id").value;
+
+        $.post(
+            server + "/device_toy_id",
+            {device_id: device_id},
+            function (data) {
+                toy_id = data.data.toy_id;
+                console.log(data.msg);
+                document.getElementById("player").src = get_music + data.data.audio;  // 不是正规玩具；为绑定用户时播放的文件
+                if (toy_id) {
+                    ws = new WebSocket(ws_server + "/toy/" + toy_id);
+                    ws.onmessage = function (data) {
+                        var content = JSON.parse(data.data);
+
+                        if (content.msg_type == "chat") {
+                            document.getElementById("player").src = get_chat + content.data;  // 绑定成功后播放的文件
+                            document.getElementById("id_user").innerText = content.from_user;
+                            console.log(content.from_user + "给你发送一条消息");
+
+                        }
+                        if (content.msg_type == "music") {
+                            document.getElementById("player").src = get_music + content.data;
+                            console.log(content.from_user + "给你点播了歌儿");
+
+                        }
+
+                    };
+
+                    ws.onclose = function () {
+                        window.location.reload();
+
+                    }
+                }
+
+            }, "json"
+        );
+
+    }
+
+    function recv_msg() {
+        to_user = document.getElementById("id_user").innerText;
+        $.post(
+            server + "/get_msg",
+            {user_id: toy_id, sender: to_user},
+            function (data) {
+                document.getElementById("player").src = get_chat + data.data;
+            },"json"
+        )
+    }
+
+
+</script>
+</html>
